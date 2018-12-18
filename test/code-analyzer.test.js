@@ -45,17 +45,21 @@ describe('The javascript parser', () => {
     });
     it('checks while statement replaced properly' , () => {
         assert.equal(parseAndSub('function foo(x, y, z){\n' +
-            '    while (x + 1 < z) {\n' +
-            '        z = (x + 1 + x + 1 + y) * 2;\n' +
+            '    let a = x + 1;\n' +
+            '    let b = a + y;\n' +
+            '    let c = 0;\n' +
+            '    \n' +
+            '    while (a < z) {\n' +
+            '        c = a + b;\n' +
+            '        z = c * 2;\n' +
             '    }\n' +
             '    \n' +
             '    return z;\n' +
-            '}\n','{"x":1,"y":2,"z":3}',[],[]),
-            'function foo(x, y, z) {\n' +
+            '}\n','{"x":1,"y":2,"z":3}',[],[]), 'function foo(x, y, z) {\n' +
             '    while (x + 1 < z) {\n' +
-            '        z = (x + 1 + x + 1 + y) * 2;\n' +
+            '        z = (x + 1 + (x + 1 + y)) * 2;\n' +
             '    }\n' +
-            '    return (x + 1 + x + 1 + y) * 2;\n' +
+            '    return z;\n' +
             '}');
 
     });
@@ -169,4 +173,90 @@ describe('The javascript parser', () => {
             '    }\n' +
             '}');
     });
+
+    it('checks handling array assignment' , () => {
+        assert.equal(parseAndSub('function foo(x, y, z){\n' +
+            '    let c = 7;\n' +
+            '    x[0] = 1;\n' +
+            '    if (x[0]>5) {\n' +
+            '       return 1;\n' +
+            '    }\n' +
+            '    return z;\n' +
+            '}','{"x":[6,3],"y":2,"z":5}',[],[]),
+            'function foo(x, y, z) {\n' +
+            '    if (x[0] > 5) {\n' +
+            '        return 1;\n' +
+            '    }\n' +
+            '    return z;\n' +
+            '}');
+    });
+
+    it('checks handling local array assignment' , () => {
+        assert.equal(parseAndSub('function foo(x, y, z){\n' +
+            '    let c = [0,1,2];\n' +
+            '    if (c[2]>5) {\n' +
+            '       return 1;\n' +
+            '    }\n' +
+            '    return z;\n' +
+            '}','{"x":[6,3],"y":2,"z":5}',[],[]),
+            'function foo(x, y, z) {\n' +
+            '    if (2 > 5) {\n' +
+            '        return 1;\n' +
+            '    }\n' +
+            '    return z;\n' +
+            '}');
+    });
+
+    it('checks handling parameter assignment' , () => {
+        assert.equal(parseAndSub('function foo(x, y, z){\n' +
+            '    y = z;\n' +
+            '    if (y>4) {\n' +
+            '       return 1;\n' +
+            '    }\n' +
+            '    return z;\n' +
+            '}','{"x":[6,3],"y":2,"z":5}',[],[]),
+            'function foo(x, y, z) {\n' +
+            '    y = z;\n' +
+            '    if (y > 4) {\n' +
+            '        return 1;\n' +
+            '    }\n' +
+            '    return z;\n' +
+            '}');
+    });
+
+
+    it('checks handling parameter assignment from array' , () => {
+        assert.equal(parseAndSub('function foo(x, y, z){\n' +
+            '    y = x[0];\n' +
+            '    if (y>4) {\n' +
+            '       return 1;\n' +
+            '    }\n' +
+            '    return z;\n' +
+            '}','{"x":[6,3],"y":2,"z":5}',[],[]),
+            'function foo(x, y, z) {\n' +
+            '    y = x[0];\n' +
+            '    if (y > 4) {\n' +
+            '        return 1;\n' +
+            '    }\n' +
+            '    return z;\n' +
+            '}');
+    });
+
+    it('checks handling local array assignment' , () => {
+        assert.equal(parseAndSub('function foo(x, y, z){\n' +
+            '    let a = [0,1]\n' +
+            '    a[0]=5;\n' +
+            '    if (a[0]>4) {\n' +
+            '       return 1;\n' +
+            '    }\n' +
+            '    return z;\n' +
+            '}','{"x":[6,3],"y":2,"z":5}',[],[]),
+            'function foo(x, y, z) {\n' +
+            '    if (5 > 4) {\n' +
+            '        return 1;\n' +
+            '    }\n' +
+            '    return z;\n' +
+            '}');
+    });
+
 });

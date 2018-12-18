@@ -4,6 +4,7 @@ import * as escodegen from 'escodegen';
 let greenLines;
 let redLines;
 let inputVector;
+let isParam = 0;
 
 const parseCode = (codeToParse) => {
     return esprima.parseScript(codeToParse);
@@ -15,7 +16,7 @@ const parseAndSub = (codeToParse, vectorToParse, greenArray, redArray) => {
     let parsed = esprima.parseScript(codeToParse,{loc:true});
     inputVector = JSON.parse(vectorToParse);
     makeParams(inputVector);
-    let savedVars = new Map();
+    let savedVars = copyMap(inputVector);
     symbolicSub(parsed, savedVars);
     let code = escodegen.generate(parsed);
     updateIfLines(code);
@@ -30,7 +31,7 @@ const symbolicSub = (parsed, vars) => {
 const updateIfLines = (code) => {
     greenLines.splice(0,greenLines.length);
     redLines.splice(0,redLines.length);
-    let map = new Map();
+    let map = copyMap(inputVector);
     let json = esprima.parseScript(code,{loc:true});
     symbolicSub(json, map);
 };
@@ -78,13 +79,33 @@ const handleBlock = (json, vars) => {
                 }});
         }
         else if(exp.type === 'ExpressionStatement' && exp.expression.type === 'AssignmentExpression'){
-            vars[exp.expression.left.name] = handleExp(exp.expression.right, vars);
-            if(inputVector[exp.expression.left.name] === undefined) toRemove.push(exp);
+            if(!handleAssExp(exp.expression, vars))
+                toRemove.push(exp);
         }
-        else
-            symbolicSub(exp, vars);
+        else symbolicSub(exp, vars);
     });
     toRemove.forEach((exp) => { json.body.splice(json.body.indexOf(exp), 1); });
+};
+
+//returns true if left side of ass is param, false if local
+const handleAssExp = (json, vars) => {
+    if(json.left.type === 'MemberExpression') {
+        let arr = vars[json.left.object.name];
+        let val = handleExp(json.right, vars);
+        json.right = val;
+        let index = handleExp(json.left.property, vars);
+        switch(arr.type){
+        case 'ArrayExpression':  arr.elements[index.value] = val; break;
+        case 'SequenceExpression': arr.expressions[index.value] = val; break;
+        }
+        vars[json.left.object.name] = arr;
+        if(inputVector[json.left.object.name] != null) inputVector[json.left.object.name] = arr;
+    }else{
+        let val = handleExp(json.right, vars);
+        vars[json.left.name] = val;
+        json.right = val;
+    }
+    return (inputVector[json.left.name] !== undefined); //is a param
 };
 
 const handleFuncDec = (json, vars) => {
@@ -96,10 +117,6 @@ const handleExpStatement = (json, vars) => {
     symbolicSub(json.expression, vars);
 };
 
-const handleAssExp = (json, vars) => {
-    vars[json.left.name] = handleExp(json.right, vars);
-};
-
 const handleWhile = (json, vars) => {
     json.test = handleExp(json.test, vars);
     symbolicSub(json.body, vars);
@@ -107,8 +124,10 @@ const handleWhile = (json, vars) => {
 
 const handleIf = (json, vars) =>{
     json.test = handleExp(json.test, vars);
-    let paramTest = handleExp(JSON.parse(JSON.stringify(json.test)), inputVector);
-    if(eval(stringExp(paramTest)))
+    isParam = 1;
+    let paramTest = handleExp(JSON.parse(JSON.stringify(json.test)), vars); //inputVector
+    isParam = 0;
+    if(eval(stringExp(paramTest, vars)))
         greenLines.push(json.loc.start.line);
     else
         redLines.push(json.loc.start.line);
@@ -123,7 +142,6 @@ const handleIf = (json, vars) =>{
 const handleReturn = (json, vars) => {
     json.argument = handleExp(json.argument, vars);
 };
-
 
 const handleSeq = (json, vars) => {
     json.expressions.forEach((exp)=> symbolicSub(exp, vars));
@@ -168,12 +186,11 @@ const typeHandlers = new Map([
 // Where the replacing occurs
 //-----------------Expression Handlers-------------------
 const handleIdentifier = (exp, vars) => {
-    if(vars[exp.name] != null){
+    if(isParam || inputVector[exp.name] == null){
         return vars[exp.name];
-    }else
-        return exp;
+    }else return exp;
 };
-const handleLiteral = (exp) => { return exp; }; //VARS IN ARGUMENT
+const handleLiteral = (exp) => { return exp; };
 const handleBinaryExpression = (exp, vars) => {
     exp.left = handleExp(exp.left, vars);
     exp.right = handleExp(exp.right, vars);
@@ -187,14 +204,19 @@ const handleMemberExpression = (exp, vars) => {
     exp.objetct = handleExp(exp.object, vars);
     exp.property = handleExp(exp.property, vars);
     let arr = vars[exp.object.name];
-    if (arr !== undefined) {
-        if (arr.type === 'ArrayExpression')
-            return arr.elements[exp.property.value];
-        else if (arr.type === 'SequenceExpression')
-            return arr.expressions[exp.property.value];
+    if (arr !== undefined && (isParam || inputVector[exp.object.name] == null)) {
+        return handleMemberExpressionHelper(arr, exp);
     }else
         return exp;
 };
+
+const handleMemberExpressionHelper = (arr, exp) => {
+    switch(arr.type){
+    case 'ArrayExpression':  return arr.elements[exp.property.value];
+    case 'SequenceExpression': return arr.expressions[exp.property.value];
+    }
+};
+
 const handleLogicalExpression = (exp, vars) => {
     exp.left = handleExp(exp.left, vars);
     exp.right = handleExp(exp.right, vars);
@@ -227,11 +249,22 @@ const handleExp = (exp, vars) => {
 //-----------------Expression to String Functions-------------------
 
 const stringLiteral = (exp) => { return exp.value; };
-const stringBinaryExpression = (exp) => { return ((exp.left.type === 'BinaryExpression' ? ('(' + (stringExp(exp.left)) + ')') : (stringExp(exp.left))) + ' ' + exp.operator + ' ' + (exp.right.type === 'BinaryExpression' ? ('(' + (stringExp(exp.right)) + ')') : (stringExp(exp.right)))); };
-const stringUnaryExpression = (exp) => { return (exp.operator + stringExp(exp.argument)); };
-const stringLogicalExpression = (exp) => { return (stringExp(exp.left) + ' ' + exp.operator + ' ' + stringExp(exp.right)); };
-//const stringIdentifier = (exp) => { return exp.name; };
-//const stringMemberExpression = (exp) => { return (stringExp(exp.object) + '[' + stringExp(exp.property) + ']'); };
+const stringBinaryExpression = (exp, vars) => { return ((exp.left.type === 'BinaryExpression' ? ('(' + (stringExp(exp.left, vars)) + ')') : (stringExp(exp.left, vars))) + ' ' + exp.operator + ' ' + (exp.right.type === 'BinaryExpression' ? ('(' + (stringExp(exp.right, vars)) + ')') : (stringExp(exp.right, vars)))); };
+const stringUnaryExpression = (exp, vars) => { return (exp.operator + stringExp(exp.argument, vars)); };
+const stringLogicalExpression = (exp, vars) => { return (stringExp(exp.left, vars) + ' ' + exp.operator + ' ' + stringExp(exp.right, vars)); };
+const stringIdentifier = (exp, vars) => {
+    let v = vars[exp.name];
+    return stringExp(v, vars);
+};
+const stringMemberExpression = (exp, vars) => {
+    exp.objetct = handleExp(exp.object, vars);
+    exp.property = handleExp(exp.property, vars);
+    let arr = vars[exp.object.name];
+    // if (arr.type === 'ArrayExpression')
+    //     return stringExp(arr.elements[exp.property.value], vars);
+    // else if (arr.type === 'SequenceExpression')
+    return stringExp(arr.expressions[exp.property.value], vars);
+};
 // const stringArray = (exp) => {
 //     let arr = exp.elements;
 //     let str = '[';
@@ -249,8 +282,8 @@ const expToStringFuncs = new Map([
     ['BinaryExpression', stringBinaryExpression],
     ['UnaryExpression', stringUnaryExpression],
     ['LogicalExpression',stringLogicalExpression],
-    //['Identifier', stringIdentifier],
-    //['MemberExpression', stringMemberExpression],
+    ['Identifier', stringIdentifier],
+    ['MemberExpression', stringMemberExpression],
     //['ArrayExpression',stringArray]
 ]);
 
