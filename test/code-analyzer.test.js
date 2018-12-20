@@ -184,6 +184,7 @@ describe('The javascript parser', () => {
             '    return z;\n' +
             '}','{"x":[6,3],"y":2,"z":5}',[],[]),
             'function foo(x, y, z) {\n' +
+            '    x[0] = 1;\n' +
             '    if (x[0] > 5) {\n' +
             '        return 1;\n' +
             '    }\n' +
