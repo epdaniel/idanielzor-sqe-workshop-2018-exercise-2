@@ -201,7 +201,8 @@ const handleUnaryExpression = (exp) => {
     exp.argument = handleExp(exp.argument);
     return exp;
 };
-const handleMemberExpression = (exp) => {
+const handleMemberExpression = (expr) => {
+    let exp = JSON.parse(JSON.stringify(expr));
     exp.objetct = handleExp(exp.object);
     exp.property = handleExp(exp.property);
     let arr = savedVars[exp.object.name];
@@ -212,9 +213,10 @@ const handleMemberExpression = (exp) => {
 };
 
 const handleMemberExpressionHelper = (arr, exp) => {
+    let index = eval(stringExp(exp.property));
     switch(arr.type){
-    case 'ArrayExpression':  return arr.elements[exp.property.value];
-    case 'SequenceExpression': return arr.expressions[exp.property.value];
+    case 'ArrayExpression':  return arr.elements[index];
+    case 'SequenceExpression': return arr.expressions[index];
     }
 };
 
@@ -258,6 +260,7 @@ const stringLogicalExpression = (exp) => { return (stringExp(exp.left) + ' ' + e
 //     return stringExp(v);
 // };
 // const stringMemberExpression = (exp) => {
+//     console.log('yeet')
 //     exp.objetct = handleExp(exp.object);
 //     exp.property = handleExp(exp.property);
 //     let arr = savedVars[exp.object.name];
